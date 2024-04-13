@@ -1,0 +1,135 @@
+name: Test cppyy packages
+
+on: 
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Additional variables to be appended to environment by writing them to $GITHUB_ENV.'
+        default: ''
+        type: string
+      ver-cppyy:
+        description: 'Version of cppyy to use.'
+        default: 'nightly'
+        type: string
+      ver-cppyy-cling:
+        description: 'Version of cppyy-cling to use.'
+        default: 'nightly'
+        type: string
+      ver-cppyy-backend:
+        description: 'Version of cppyy-backend to use.'
+        default: 'nightly'
+        type: string
+      ver-CPyCppyy:
+        description: 'Version of CPyCppyy to use.'
+        default: 'nightly'
+        type: string
+      ver-python:
+        description: 'Version of Python to use.'
+        default: '3.x'
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-14, macos-13, windows-latest ]
+
+    steps:
+
+      - name: Set environment variables
+        # see https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#setting-an-environment-variable
+        run: echo -e "${{ inputs.env }}" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.ver-python }}
+
+      - name: Get python info
+        run: python3 -VV
+
+      - name: Set-up venv
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          echo "PATH=$PATH" >> "$GITHUB_ENV"
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+
+      - name: Install current cppyy
+        run: pip3 install cppyy
+
+
+      - name: Install cppyy-cling nightly
+        run: |
+          # curl -sSf $(curl -sSf https://api.github.com/repos/wlav/cppyy-backend/actions/artifacts?per_page=1 | jq -r ".artifacts[0].archive_download_url") -o cppyy-backend.zip
+          curl -sSfL https://nightly.link/wlav/cppyy-backend/workflows/cling-wheels/master/artifact.zip -o cppyy-cling.zip
+          unzip cppyy-cling.zip -d cppyy-cling
+
+          pip3 install cppyy-cling --no-index --no-deps --find-links ./cppyy-cling
+        if: ${{ inputs.ver-cppyy-cling == 'nightly' }}
+
+      - name: Install cppyy-cling from pip
+        run: |
+          pip3 install cppyy-cling${{ inputs.ver-cppyy-cling }} --no-deps
+        if: ${{ inputs.ver-cppyy-cling != 'nightly' }}
+
+
+      - name: Install cppyy-backend nightly
+        run: |
+          pip3 install git+https://github.com/wlav/cppyy-backend.git#subdirectory=clingwrapper --no-deps
+        if: ${{ inputs.ver-cppyy-backend == 'nightly' }}
+
+      - name: Install cppyy-backend from pip
+        run: |
+          pip3 install cppyy-backend${{ inputs.ver-cppyy-backend }} --no-deps
+        if: ${{ inputs.ver-cppyy-backend != 'nightly' }}
+
+
+      - name: Install CPyCppyy nightly
+        run: |
+          pip3 install git+https://github.com/wlav/CPyCppyy.git --no-deps
+        if: ${{ inputs.ver-CPyCppyy == 'nightly' }}
+
+      - name: Install CPyCppyy from pip
+        run: |
+          pip3 install CPyCppyy${{ inputs.ver-CPyCppyy }} --no-deps
+        if: ${{ inputs.ver-CPyCppyy != 'nightly' }}
+
+
+      - name: Install cppyy nightly
+        run: |
+          pip3 install git+https://github.com/wlav/cppyy.git --no-deps
+        if: ${{ inputs.ver-cppyy == 'nightly' }}
+
+      - name: Install cppyy from pip
+        run: |
+          pip3 install cppyy${{ inputs.ver-cppyy }} --no-deps
+        if: ${{ inputs.ver-cppyy != 'nightly' }}
+
+
+      - name: Get installed packages info
+        run: pip3 freeze
+
+      - name: Check compiler version used by cppyy
+        run: python3 -c "import cppyy; cppyy.cppexec('std::cout << ${{ startsWith(matrix.os, 'windows') && '_MSC_VER' || '__VERSION__' }} << std::endl;')"
+
+
+      - name: Get cpyyy test suite
+        uses: actions/checkout@v4
+        with:
+          repository: 'wlav/cppyy'
+          sparse-checkout: 'test/'
+
+      - name: Install pytest
+        run: pip3 install pytest
+
+      - name: Run pytest suite
+        run: pytest
+        working-directory: ./test
